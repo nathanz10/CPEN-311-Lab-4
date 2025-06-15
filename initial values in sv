@@ -1,0 +1,87 @@
+module ksa (
+    input  logic        CLOCK_50,  // Clock pin
+    input  logic [3:0]  KEY,       // Push button switches
+    input  logic [9:0]  SW,        // Slider switches
+    output logic [9:0]  LEDR,      // Red LEDs
+    output logic [6:0]  HEX0,
+    output logic [6:0]  HEX1,
+    output logic [6:0]  HEX2,
+    output logic [6:0]  HEX3,
+    output logic [6:0]  HEX4,
+    output logic [6:0]  HEX5
+);
+
+  // Internal signals
+  logic clk, reset_n;
+  logic [7:0] mem_addr, mem_data_in, mem_data_out;
+  logic mem_write_en;
+  logic [7:0] i;
+
+  
+  logic task_2a_done, task_2a_start;
+  logic [7:0] addr_task_2a, task_2a_data_out, task_2a_data_in;
+  logic task_2a_write_en;
+
+  logic task_2a_active;
+  
+  logic [7:0] init_mem_addr, init_mem_data_in;
+  logic init_mem_write_en;
+
+  // Assign clock and reset
+  assign clk = CLOCK_50;
+  assign reset_n = KEY[3];
+
+  // Instantiate memory
+  s_memory s_array (
+      .address(mem_addr),
+      .clock(clk),
+      .data(mem_data_in),
+      .wren(mem_write_en),
+      .q(mem_data_out)
+  );
+
+  // Initialization FSM to load s[i] = i
+  always_ff @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      i <= 8'd0;
+      init_mem_write_en <= 0;
+    end
+	 else begin
+      if (i <= 8'd255) begin
+		  init_mem_write_en <= 1;
+        init_mem_addr     <= i;
+        init_mem_data_in  <= i;
+        i <= i + 1;
+      end else begin
+        init_mem_write_en <= 0;
+        //task_2a_start <= 1;
+      end
+    end
+  end
+
+  assign mem_addr = init_mem_addr;
+  assign mem_data_in = init_mem_data_in;
+  assign mem_write_en = init_mem_write_en;
+
+  // Mux control between init and FSM
+  /*assign task_2a_active = task_2a_start && !task_2a_done;
+
+  assign mem_addr     = (task_2a_active) ? addr_task_2a     : init_mem_addr;
+  assign mem_data_in  = (task_2a_active) ? task_2a_data_in  : init_mem_data_in;
+  assign mem_write_en = (task_2a_active) ? task_2a_write_en : init_mem_write_en;
+
+  assign fsm_data_in = mem_data_out;*/
+
+  // Instantiate FSM
+  /*task_2a task_fsm (
+    .clk(clk),
+    .reset(reset_n),
+    .start_signal(task_2a_start),
+    .q(task_2a_data_in),
+    .mem_addr(addr_task_2a),
+    .mem_write_en(task_2a_write_en),
+    .mem_data_out(task_2a_data_out),
+    .finish_signal(task_2a_done)
+  );*/
+
+endmodule
