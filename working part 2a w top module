@@ -1,0 +1,392 @@
+module ksa (
+    input  logic        CLOCK_50,
+    input  logic [3:0]  KEY,
+    input  logic [9:0]  SW,
+    output logic [9:0]  LEDR,
+    output logic [6:0]  HEX0,
+    output logic [6:0]  HEX1,
+    output logic [6:0]  HEX2,
+    output logic [6:0]  HEX3,
+    output logic [6:0]  HEX4,
+    output logic [6:0]  HEX5
+);
+    logic clk, reset_n;
+    assign clk = CLOCK_50;
+    assign reset_n = KEY[3];
+    
+    // Initialization signals
+    logic [8:0] init_counter;
+    logic [7:0] mem_addr, mem_data_in, mem_data_out;
+    logic       mem_write_en;
+    
+    // Task 2a signals
+    logic       task_2a_start, task_2a_done;
+    logic [7:0] task_2a_addr, task_2a_data_out;
+    logic       task_2a_write_en;
+    logic [3:0] task_2a_state;
+    
+    // Control signals
+    typedef enum logic [1:0] {
+        INIT_PHASE,
+        KSA_PHASE,
+        DONE_PHASE
+    } control_state_t;
+    
+    control_state_t control_state;
+    
+    // Debug counters
+    logic [15:0] cycle_counter;
+    logic [7:0] debug_i, debug_j;
+    
+    // RAM instance
+    s_memory s_array (
+        .address(mem_addr),
+        .clock(clk),
+        .data(mem_data_in),
+        .wren(mem_write_en),
+        .q(mem_data_out)
+    );
+    
+    // Main control FSM
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            control_state <= INIT_PHASE;
+            init_counter <= 9'd0;
+            task_2a_start <= 1'b0;
+            cycle_counter <= 16'd0;
+        end else begin
+            cycle_counter <= cycle_counter + 1'b1;
+            
+            case (control_state)
+                INIT_PHASE: begin
+                    if (init_counter <= 9'd255) begin
+                        init_counter <= init_counter + 1'b1;
+                        task_2a_start <= 1'b0;
+                    end else begin
+                        control_state <= KSA_PHASE;
+                        task_2a_start <= 1'b1;  // Start KSA
+                    end
+                end
+                
+                KSA_PHASE: begin
+                    task_2a_start <= 1'b0;  // Only pulse start for one cycle
+                    if (task_2a_done) begin
+                        control_state <= DONE_PHASE;
+                    end
+                end
+                
+                DONE_PHASE: begin
+                    // Stay in done state
+                    task_2a_start <= 1'b0;
+                end
+                
+                default: begin
+                    control_state <= INIT_PHASE;
+                end
+            endcase
+        end
+    end
+    
+    // Memory multiplexer
+    always_comb begin
+        case (control_state)
+            INIT_PHASE: begin
+                mem_addr     = init_counter[7:0];
+                mem_data_in  = init_counter[7:0];
+                mem_write_en = (init_counter <= 9'd255) ? 1'b1 : 1'b0;
+            end
+            
+            KSA_PHASE: begin
+                mem_addr     = task_2a_addr;
+                mem_data_in  = task_2a_data_out;
+                mem_write_en = task_2a_write_en;
+            end
+            
+            DONE_PHASE: begin
+                mem_addr     = 8'd0;
+                mem_data_in  = 8'd0;
+                mem_write_en = 1'b0;
+            end
+            
+            default: begin
+                mem_addr     = 8'd0;
+                mem_data_in  = 8'd0;
+                mem_write_en = 1'b0;
+            end
+        endcase
+    end
+    
+    // Task 2a instance
+    task_2a ksa_fsm (
+        .clk(clk),
+        .reset_n(reset_n),
+        .start_signal(task_2a_start),
+        .q(mem_data_out),
+        .mem_addr(task_2a_addr),
+        .mem_write_en(task_2a_write_en),
+        .mem_data_out(task_2a_data_out),
+        .finish_signal(task_2a_done),
+        .debug_state(task_2a_state),
+        .debug_i(debug_i),
+        .debug_j(debug_j)
+    );
+    
+    // LED assignments for debugging
+    assign LEDR[0] = task_2a_done;
+    assign LEDR[1] = task_2a_start;
+    assign LEDR[2] = (control_state == KSA_PHASE);
+    assign LEDR[3] = mem_write_en;
+    assign LEDR[4] = (control_state == INIT_PHASE);
+    assign LEDR[5] = (control_state == DONE_PHASE);
+    assign LEDR[9:6] = task_2a_state;
+    
+    // 7-segment decoder function
+    function [6:0] hex_to_7seg(input [3:0] hex);
+        case (hex)
+            4'h0: hex_to_7seg = 7'b1000000; // 0
+            4'h1: hex_to_7seg = 7'b1111001; // 1
+            4'h2: hex_to_7seg = 7'b0100100; // 2
+            4'h3: hex_to_7seg = 7'b0110000; // 3
+            4'h4: hex_to_7seg = 7'b0011001; // 4
+            4'h5: hex_to_7seg = 7'b0010010; // 5
+            4'h6: hex_to_7seg = 7'b0000010; // 6
+            4'h7: hex_to_7seg = 7'b1111000; // 7
+            4'h8: hex_to_7seg = 7'b0000000; // 8
+            4'h9: hex_to_7seg = 7'b0010000; // 9
+            4'hA: hex_to_7seg = 7'b0001000; // A
+            4'hB: hex_to_7seg = 7'b0000011; // b
+            4'hC: hex_to_7seg = 7'b1000110; // C
+            4'hD: hex_to_7seg = 7'b0100001; // d
+            4'hE: hex_to_7seg = 7'b0000110; // E
+            4'hF: hex_to_7seg = 7'b0001110; // F
+        endcase
+    endfunction
+    
+    // HEX display assignments
+    assign HEX0 = hex_to_7seg(task_2a_state);          // FSM state
+    assign HEX1 = hex_to_7seg(debug_i[3:0]);           // i counter low nibble
+    assign HEX2 = hex_to_7seg(debug_i[7:4]);           // i counter high nibble
+    assign HEX3 = hex_to_7seg(debug_j[3:0]);           // j counter low nibble
+    assign HEX4 = hex_to_7seg(debug_j[7:4]);           // j counter high nibble
+    assign HEX5 = hex_to_7seg({2'b00, control_state}); // Control state
+    
+endmodule
+
+module task_2a (
+    input  logic        clk,
+    input  logic        reset_n,
+    input  logic        start_signal,
+    input  logic [7:0]  q,
+    output logic [7:0]  mem_addr,
+    output logic        mem_write_en,
+    output logic [7:0]  mem_data_out,
+    output logic        finish_signal,
+    output logic [3:0]  debug_state,
+    output logic [7:0]  debug_i,
+    output logic [7:0]  debug_j
+);
+
+    typedef enum logic [3:0] {
+        S_IDLE       = 4'd0,
+        S_READ_SI    = 4'd1,
+        S_WAIT_SI    = 4'd2,
+        S_COMPUTE_J  = 4'd3,
+        S_READ_SJ    = 4'd4,
+        S_WAIT_SJ    = 4'd5,
+        S_SWAP_PREP  = 4'd6,
+        S_WRITE_SJ   = 4'd7,
+        S_WAIT_WR1   = 4'd8,
+        S_WRITE_SI   = 4'd9,
+        S_WAIT_WR2   = 4'd10,
+        S_INCREMENT  = 4'd11,
+        S_FINISH     = 4'd12
+    } state_t;
+
+    state_t current_state, next_state;
+    assign debug_state = current_state;
+
+    // FSM variables
+    logic [7:0] i, j;
+    logic [7:0] s_i, s_j;
+    logic [7:0] saved_i, saved_j;  // Save indices for writing back
+    
+    // Secret key - KSA typically uses keys, here's a simple 3-byte key
+    localparam logic [7:0] SECRET_KEY [0:2] = '{8'h00, 8'h02, 8'h49};
+    logic [7:0] current_key_byte;
+    
+    // Debug outputs
+    assign debug_i = i;
+    assign debug_j = j;
+    
+    // Start signal edge detection
+    logic start_prev;
+    logic start_pulse;
+    
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            start_prev <= 1'b0;
+        end else begin
+            start_prev <= start_signal;
+        end
+    end
+    
+    assign start_pulse = start_signal & ~start_prev;
+    
+    // Current key byte selection
+    always_comb begin
+        current_key_byte = SECRET_KEY[i % 3];
+    end
+    
+    // State machine transitions
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n)
+            current_state <= S_IDLE;
+        else
+            current_state <= next_state;
+    end
+    
+    // Next state logic
+    always_comb begin
+        next_state = current_state;
+        
+        case (current_state)
+            S_IDLE:       next_state = start_pulse ? S_READ_SI : S_IDLE;
+            S_READ_SI:    next_state = S_WAIT_SI;
+            S_WAIT_SI:    next_state = S_COMPUTE_J;
+            S_COMPUTE_J:  next_state = S_READ_SJ;
+            S_READ_SJ:    next_state = S_WAIT_SJ;
+            S_WAIT_SJ:    next_state = S_SWAP_PREP;
+            S_SWAP_PREP:  next_state = S_WRITE_SJ;
+            S_WRITE_SJ:   next_state = S_WAIT_WR1;
+            S_WAIT_WR1:   next_state = S_WRITE_SI;
+            S_WRITE_SI:   next_state = S_WAIT_WR2;
+            S_WAIT_WR2:   next_state = S_INCREMENT;
+            S_INCREMENT:  next_state = (i == 8'd255) ? S_FINISH : S_READ_SI;
+            S_FINISH:     next_state = S_FINISH;
+            default:      next_state = S_IDLE;
+        endcase
+    end
+    
+    // Memory interface control
+    always_comb begin
+        mem_addr = 8'd0;
+        mem_data_out = 8'd0;
+        mem_write_en = 1'b0;
+        
+        case (current_state)
+            S_READ_SI: begin
+                mem_addr = i;
+                mem_write_en = 1'b0;
+            end
+            
+            S_READ_SJ: begin
+                mem_addr = j;
+                mem_write_en = 1'b0;
+            end
+            
+            S_WRITE_SJ: begin
+                mem_addr = saved_j;
+                mem_data_out = s_i;
+                mem_write_en = 1'b1;
+            end
+            
+            S_WRITE_SI: begin
+                mem_addr = saved_i;
+                mem_data_out = s_j;
+                mem_write_en = 1'b1;
+            end
+            
+            default: begin
+                mem_addr = 8'd0;
+                mem_data_out = 8'd0;
+                mem_write_en = 1'b0;
+            end
+        endcase
+    end
+    
+    // Main FSM registers and operations
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            i <= 8'd0;
+            j <= 8'd0;
+            s_i <= 8'd0;
+            s_j <= 8'd0;
+            saved_i <= 8'd0;
+            saved_j <= 8'd0;
+            finish_signal <= 1'b0;
+        end else begin
+            case (current_state)
+                S_IDLE: begin
+                    if (start_pulse) begin
+                        i <= 8'd0;
+                        j <= 8'd0;
+                        finish_signal <= 1'b0;
+                    end
+                end
+                
+                S_READ_SI: begin
+                    // Address is set in combinational logic
+                    saved_i <= i;  // Save current i for later write
+                end
+                
+                S_WAIT_SI: begin
+                    s_i <= q;  // Capture S[i] from memory
+                end
+                
+                S_COMPUTE_J: begin
+                    j <= j + s_i + current_key_byte;
+                end
+                
+                S_READ_SJ: begin
+                    // Address is set in combinational logic
+                    saved_j <= j;  // Save current j for later write
+                end
+                
+                S_WAIT_SJ: begin
+                    s_j <= q;  // Capture S[j] from memory
+                end
+                
+                S_SWAP_PREP: begin
+                    // Values are ready for swapping
+                    // s_i contains S[i], s_j contains S[j]
+                    // We will write s_i to position j and s_j to position i
+                end
+                
+                S_WRITE_SJ: begin
+                    // Write S[i] to position j (combinational)
+                end
+                
+                S_WAIT_WR1: begin
+                    // Wait cycle for write to complete
+                end
+                
+                S_WRITE_SI: begin
+                    // Write S[j] to position i (combinational)
+                end
+                
+                S_WAIT_WR2: begin
+                    // Wait cycle for write to complete
+                end
+                
+                S_INCREMENT: begin
+                    if (i == 8'd255) begin
+                        finish_signal <= 1'b1;
+                        // Don't increment i, we're done
+                    end else begin
+                        i <= i + 1'b1;
+                        // j remains as computed for next iteration
+                    end
+                end
+                
+                S_FINISH: begin
+                    finish_signal <= 1'b1;
+                end
+                
+                default: begin
+                    // Should not reach here
+                end
+            endcase
+        end
+    end
+
+endmodule
